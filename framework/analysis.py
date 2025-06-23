@@ -62,7 +62,7 @@ def apply_smote_balancing(train_data, y_train):
     
     return X_train_bal, y_train_bal
     
-def get_label(data, volumes):
+def get_label(data, volumes, cost_weight=0.5):
     """
     Gera rótulos multiclasse baseado no cálculo do custo balanceado para cada classe.
     
@@ -72,7 +72,7 @@ def get_label(data, volumes):
         cost_weight (float): Peso do custo no balanceamento (0-1)
     
     Returns:
-        Series: Rótulos (COLD/WARM/HOT)
+        Series: Rótulos (0=COLD, 1=WARM, 2=HOT)
     """
     MIN_BILLABLE_SIZE = 0.128  # 128KB em GB
     labels = []
@@ -97,42 +97,50 @@ def get_label(data, volumes):
             accesses = row.sum()
             billable_volume = max(volume, MIN_BILLABLE_SIZE)
             
-            # Calcula custo e latência para cada classe
+            # Calcula custo total para cada classe (armazenamento + operação + recuperação)
             costs = []
             
-            # HOT
+            # HOT (0=COLD, 1=WARM, 2=HOT)
             hot_storage = billable_volume * hot_storage_cost
             hot_operation = accesses * billable_volume * hot_operation_cost
-            hot_latency_cost = accesses * hot_latency
-            hot_cost = (hot_storage + hot_operation) + \
-                      (hot_latency_cost / (cold_latency * accesses) if accesses > 0 else 0)
-            costs.append(hot_cost)
+            hot_retrieval = accesses * billable_volume * hot_retrieval_cost
+            hot_total_cost = hot_storage + hot_operation + hot_retrieval
+            costs.append(hot_total_cost)
             
             # WARM
             warm_storage = billable_volume * warm_storage_cost
             warm_operation = accesses * billable_volume * warm_operation_cost
             warm_retrieval = accesses * billable_volume * warm_retrieval_cost
-            warm_latency_cost = accesses * warm_latency
-            warm_cost = (warm_storage + warm_operation + warm_retrieval) + \
-                       (warm_latency_cost / (cold_latency * accesses) if accesses > 0 else 0)
-            costs.append(warm_cost)
+            warm_total_cost = warm_storage + warm_operation + warm_retrieval
+            costs.append(warm_total_cost)
             
             # COLD
             cold_storage = billable_volume * cold_storage_cost
             cold_operation = accesses * billable_volume * cold_operation_cost
             cold_retrieval = accesses * billable_volume * cold_retrieval_cost
-            cold_latency_cost = accesses * cold_latency
-            cold_cost = (cold_storage + cold_operation + cold_retrieval) + \
-                       (cold_latency_cost / (cold_latency * accesses) if accesses > 0 else 0)
-            costs.append(cold_cost)
+            cold_total_cost = cold_storage + cold_operation + cold_retrieval
+            costs.append(cold_total_cost)
+            
+            # Aplica o peso do custo para balancear com latência
+            # Se cost_weight é alto, favorece classes mais baratas (COLD/WARM)
+            # Se cost_weight é baixo, favorece classes mais rápidas (HOT)
+            if cost_weight > 0.7:  # Conservador - favorece custo baixo
+                costs[2] *= 1.2  # Penaliza HOT
+                costs[1] *= 1.1  # Penaliza WARM levemente
+            elif cost_weight < 0.3:  # Agressivo - favorece performance
+                costs[0] *= 1.2  # Penaliza COLD
+                costs[1] *= 1.1  # Penaliza WARM levemente
             
             # Escolhe a classe com menor custo balanceado
-            labels.append(np.argmin(costs))
+            optimal_class = np.argmin(costs)
+            labels.append(optimal_class)
+            
         except Exception as e:
             print(f"Erro ao processar índice {idx}: {e}")
             labels.append(0)  # Default para COLD
     
     print(f"Rótulos gerados: {len(labels)}")
+    print(f"Distribuição de classes: {pd.Series(labels).value_counts().to_dict()}")
     return pd.Series(labels, index=common_indices)
 
 def extract_data(df_access, volumes, start, end):
@@ -199,9 +207,10 @@ def run_analysis(window, df_access, df_volume, models_to_run, classifiers, outpu
 
     # Gera rótulos multiclasse
     print("Debug: Gerando rótulos de treino...")
-    y_train = get_label(label_train_data, volumes)
+    cost_weight = 0.5  # Valor padrão, pode ser obtido do config se necessário
+    y_train = get_label(label_train_data, volumes, cost_weight)
     print("Debug: Gerando rótulos de teste...")
-    y_test = get_label(label_test_data, volumes)
+    y_test = get_label(label_test_data, volumes, cost_weight)
 
     # Verificar se há rótulos válidos
     if len(y_train) == 0 or len(y_test) == 0:
