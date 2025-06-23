@@ -1,0 +1,26 @@
+# config/config.yaml
+
+window_size: 4
+step_size: 4
+model: 'SVML'
+models_to_run:
+  - 'AHL'  # Always Hot
+  - 'AWL'  # Always Warm
+  - 'SVMR'
+  - 'ONL'
+  # - 'LR'
+  # - 'SVML' # SVM with Linear kernel
+  # - 'RF'   # Random Forest
+  # - 'DCT'  # Decision Tree
+  # - 'KNN'  # K-Nearest Neighbors
+  # - 'SV-Grid'
+  # - 'HV'
+  # - 'SV'
+  # - 'GBC'  # Gradient Boosting
+  # - 'ABC'  # AdaBoost
+  # - 'ETC'  # Extra Trees
+  # - 'MLP'  # Neural Network
+  # - 'XGB'  # XGBoost
+  # - 'LGBM' # LightGBM
+pop_name: 'Pop2'
+cost_weight: 40
