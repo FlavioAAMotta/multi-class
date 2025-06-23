@@ -1,5 +1,5 @@
 import numpy as np
-from config.costs_values import cold_storage_cost, warm_storage_cost, hot_storage_cost, cold_operation_cost, warm_operation_cost, hot_operation_cost, cold_retrieval_cost, warm_retrieval_cost, hot_retrieval_cost, cold_latency, warm_latency, hot_latency
+from config.costs_values import cold_storage_cost, warm_storage_cost, hot_storage_cost, cold_operation_cost, warm_operation_cost, hot_operation_cost, cold_retrieval_cost, warm_retrieval_cost, hot_retrieval_cost
 
 def get_online_predictions(data, volumes):
     """

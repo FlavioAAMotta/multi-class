@@ -22,5 +22,5 @@ models_to_run:
   # - 'MLP'  # Neural Network
   # - 'XGB'  # XGBoost
   # - 'LGBM' # LightGBM
-pop_name: 'Pop2'
+pop_name: 'Pop1'
 cost_weight: 40
