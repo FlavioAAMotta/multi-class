@@ -1,69 +1,54 @@
 import numpy as np
-from .user_profiles import UserProfile
+from config.costs_values import cold_storage_cost, warm_storage_cost, hot_storage_cost, cold_operation_cost, warm_operation_cost, hot_operation_cost, cold_retrieval_cost, warm_retrieval_cost, hot_retrieval_cost, cold_latency, warm_latency, hot_latency
 
-def get_online_predictions(test_data, volumes, cost_weight):
+def get_online_predictions(data, volumes):
     """
-    Classifica dados de teste baseado no conhecimento dos custos e número de acessos.
+    Classifies test data based on costs and number of accesses.
     
     Args:
-        test_data: Dados de teste contendo número de acessos
-        volumes: Volumes dos dados
-        cost_weight: Peso do custo para balanceamento (0-1)
+        data: Data containing number of accesses
+        volumes: Data volumes
     
     Returns:
-        predictions: Array com classificações (0=COLD, 1=WARM, 2=HOT)
+        predictions: Array with classifications (0=COLD, 1=WARM, 2=HOT)
     """
-    # Cria perfil do usuário com os pesos especificados
-    user_profile = UserProfile(cost_weight=cost_weight)
     
-    # Extrai número de acessos dos dados de teste
-    # Calcula o total de acessos por objeto (soma das colunas)
-    if hasattr(test_data, 'sum'):
-        # Se for DataFrame, soma as colunas para obter total de acessos por objeto
-        acessos = test_data.sum(axis=1).values
+    # Extract number of accesses from test data
+    # Calculate total accesses per object (sum of columns)
+    if hasattr(data, 'sum'):
+        # If DataFrame, sum columns to get total accesses per object
+        accesses = data.sum(axis=1).values
     else:
-        # Se for array, assume que já é o número de acessos por objeto
-        acessos = np.array(test_data)
+        # If array, assume it's already the number of accesses per object
+        accesses = np.array(data)
     
-    # Volume fixo para cálculos (usando média dos volumes se disponível)
+    # Fixed volume for calculations (using mean of volumes if available)
     if volumes is not None:
-        volume_fixo = np.mean(volumes) if len(volumes) > 0 else 1.0
+        fixed_volume = np.mean(volumes) if len(volumes) > 0 else 1.0
     else:
-        volume_fixo = 1.0
+        fixed_volume = 1.0
     
     predictions = []
     
-    # Para cada item nos dados de teste
-    for i, num_acessos in enumerate(acessos):
-        # Calcula custos para as três classes de armazenamento
-        custo_hot = (user_profile.hot_storage_cost * volume_fixo) + \
-                   (user_profile.hot_operation_cost * num_acessos * volume_fixo) + \
-                   (user_profile.hot_retrieval_cost * num_acessos * volume_fixo)
+    # For each item in test data
+    for i, num_accesses in enumerate(accesses):
+        # Calculate costs for the three storage classes
+        hot_cost = (hot_storage_cost * fixed_volume) + \
+                  (hot_operation_cost * num_accesses * fixed_volume) + \
+                  (hot_retrieval_cost * num_accesses * fixed_volume)
         
-        custo_warm = (user_profile.warm_storage_cost * volume_fixo) + \
-                    (user_profile.warm_operation_cost * num_acessos * volume_fixo) + \
-                    (user_profile.warm_retrieval_cost * num_acessos * volume_fixo)
+        warm_cost = (warm_storage_cost * fixed_volume) + \
+                   (warm_operation_cost * num_accesses * fixed_volume) + \
+                   (warm_retrieval_cost * num_accesses * fixed_volume)
         
-        custo_cold = (user_profile.cold_storage_cost * volume_fixo) + \
-                    (user_profile.cold_operation_cost * num_acessos * volume_fixo) + \
-                    (user_profile.cold_retrieval_cost * num_acessos * volume_fixo)
+        cold_cost = (cold_storage_cost * fixed_volume) + \
+                   (cold_operation_cost * num_accesses * fixed_volume) + \
+                   (cold_retrieval_cost * num_accesses * fixed_volume)
         
-        # Classifica baseado no menor custo
-        custos = [custo_cold, custo_warm, custo_hot]
-        classe_otima = np.argmin(custos)
+        # Classify based on lowest cost
+        costs = [cold_cost, warm_cost, hot_cost]
+        optimal_class = np.argmin(costs)
         
-        # Aplica threshold de decisão baseado no perfil do usuário
-        # Se o custo_weight for alto (conservador), tende a classificar como COLD/WARM
-        # Se o custo_weight for baixo (agressivo), tende a classificar como HOT
-        if user_profile.cost_weight > 0.7:  # Conservador
-            # Penaliza HOT para usuários conservadores
-            custos[2] *= 1.2  # Aumenta custo do HOT em 20%
-            classe_otima = np.argmin(custos)
-        elif user_profile.cost_weight < 0.3:  # Agressivo
-            # Favorece HOT para usuários agressivos
-            custos[2] *= 0.8  # Reduz custo do HOT em 20%
-            classe_otima = np.argmin(custos)
-        
-        predictions.append(classe_otima)
+        predictions.append(optimal_class)
     
     return np.array(predictions)
