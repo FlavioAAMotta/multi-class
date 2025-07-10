@@ -6,13 +6,14 @@ model: 'SVML'
 models_to_run:
   - 'AHL'  # Always Hot
   - 'AWL'  # Always Warm
+  - 'ACL'  # Always Cold
   - 'SVMR'
   - 'ONL'
   # - 'LR'
   # - 'SVML' # SVM with Linear kernel
   # - 'RF'   # Random Forest
   # - 'DCT'  # Decision Tree
-  # - 'KNN'  # K-Nearest Neighbors
+  - 'KNN'  # K-Nearest Neighbors
   # - 'SV-Grid'
   # - 'HV'
   # - 'SV'
@@ -22,5 +23,5 @@ models_to_run:
   # - 'MLP'  # Neural Network
   # - 'XGB'  # XGBoost
   # - 'LGBM' # LightGBM
-pop_name: 'Pop1'
-cost_weight: 40
+pop_name: 'Pop2'
+cost_weight: 0.5
