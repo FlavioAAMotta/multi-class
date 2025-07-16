@@ -9,14 +9,14 @@ models_to_run:
   - 'ACL'  # Always Cold
   - 'SVMR'
   - 'ONL'
-  # - 'LR'
-  # - 'SVML' # SVM with Linear kernel
-  # - 'RF'   # Random Forest
-  # - 'DCT'  # Decision Tree
+  - 'LR'
+  - 'SVML' # SVM with Linear kernel
+  - 'RF'   # Random Forest
+  - 'DCT'  # Decision Tree
   - 'KNN'  # K-Nearest Neighbors
-  # - 'SV-Grid'
-  # - 'HV'
-  # - 'SV'
+  - 'SV-Grid'
+  - 'HV'
+  - 'SV'
   # - 'GBC'  # Gradient Boosting
   # - 'ABC'  # AdaBoost
   # - 'ETC'  # Extra Trees
@@ -24,4 +24,5 @@ models_to_run:
   # - 'XGB'  # XGBoost
   # - 'LGBM' # LightGBM
 pop_name: 'Pop2'
-cost_weight: 0.5
+# cost_weight pode ser um valor único ou uma lista de valores para testar diferentes configurações
+cost_weight: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]

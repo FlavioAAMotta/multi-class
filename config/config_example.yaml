@@ -1,0 +1,36 @@
+# config/config_example.yaml
+# Exemplo de configuração com diferentes valores de cost_weight
+
+window_size: 4
+step_size: 4
+model: 'SVML'
+models_to_run:
+  - 'AHL'  # Always Hot
+  - 'AWL'  # Always Warm
+  - 'ACL'  # Always Cold
+  - 'SVMR'
+  - 'ONL'
+  - 'KNN'  # K-Nearest Neighbors
+  - 'RF'   # Random Forest
+  - 'DCT'  # Decision Tree
+pop_name: 'Pop2'
+
+# Configurações de cost_weight:
+# - cost_weight baixo (0.1-0.3): Favorece latência, mais agressivo em classificar como HOT
+# - cost_weight médio (0.4-0.6): Balanceado entre custo e latência
+# - cost_weight alto (0.7-0.9): Favorece custo, mais conservador em classificar como HOT
+
+# Exemplo 1: Teste com valores específicos
+cost_weight: [0.2, 0.5, 0.8]
+
+# Exemplo 2: Teste com apenas um valor (comportamento padrão)
+# cost_weight: 0.5
+
+# Exemplo 3: Teste com valores mais extremos
+# cost_weight: [0.1, 0.3, 0.5, 0.7, 0.9]
+
+# Exemplo 4: Teste com valores focados em latência
+# cost_weight: [0.1, 0.2, 0.3]
+
+# Exemplo 5: Teste com valores focados em custo
+# cost_weight: [0.7, 0.8, 0.9] 

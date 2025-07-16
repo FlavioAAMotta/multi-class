@@ -29,6 +29,60 @@ T_disk_hot = 400.0    # Tempo de acesso ao disco para HOT
 # Funções Auxiliares
 # ============================================================
 
+def apply_cost_weight_thresholds(y_prob, cost_weight, user_profile):
+    """
+    Aplica thresholds baseados no cost_weight para ajustar as predições dos modelos.
+    
+    Args:
+        y_prob (array): Probabilidades preditas pelo modelo (n_samples, n_classes)
+        cost_weight (float): Peso do custo (0-1). Valores altos favorecem classes mais baratas (COLD/WARM)
+        user_profile (UserProfile): Perfil do usuário com parâmetros de threshold
+    
+    Returns:
+        array: Predições ajustadas (COLD/WARM/HOT)
+    """
+    predictions = np.zeros(y_prob.shape[0], dtype=int)
+    
+    # Calcula thresholds ajustados baseado no cost_weight
+    # cost_weight alto = mais conservador = favorece COLD/WARM
+    # cost_weight baixo = mais agressivo = favorece HOT
+    
+    # Threshold base para classificar como HOT (probabilidade mínima)
+    base_hot_threshold = 0.4  # 40% de probabilidade para classificar como HOT
+    
+    # Ajusta threshold baseado no cost_weight
+    # cost_weight = 0.0 (muito agressivo) -> hot_threshold = 0.2 (fácil ser HOT)
+    # cost_weight = 0.5 (neutro) -> hot_threshold = 0.4 (threshold base)
+    # cost_weight = 1.0 (muito conservador) -> hot_threshold = 0.6 (difícil ser HOT)
+    hot_threshold = base_hot_threshold + (cost_weight - 0.5) * 0.8
+    
+    # Threshold para classificar como WARM
+    warm_threshold = 0.3 + (cost_weight - 0.5) * 0.4
+    
+    # Imprime informações sobre os thresholds aplicados (apenas na primeira vez para cada cost_weight)
+    current_cost_weight = getattr(apply_cost_weight_thresholds, '_current_cost_weight', None)
+    if current_cost_weight != cost_weight:
+        print(f"\nAplicando thresholds baseados no cost_weight = {cost_weight:.2f}:")
+        print(f"- Threshold para HOT: {hot_threshold:.3f} (cost_weight alto = mais conservador)")
+        print(f"- Threshold para WARM: {warm_threshold:.3f}")
+        print(f"- Interpretação: cost_weight = {cost_weight:.2f} {'(conservador)' if cost_weight > 0.5 else '(agressivo)' if cost_weight < 0.5 else '(neutro)'}")
+        apply_cost_weight_thresholds._current_cost_weight = cost_weight
+    
+    # Para cada amostra, aplica o threshold baseado no cost_weight
+    for i, probs in enumerate(y_prob):
+        # Normaliza as probabilidades para garantir que somem 1
+        probs = probs / np.sum(probs)
+        
+        # Aplica os thresholds
+        if probs[2] >= hot_threshold:  # Probabilidade de HOT >= threshold
+            predictions[i] = 2  # HOT
+        elif probs[1] >= warm_threshold:  # Probabilidade de WARM >= threshold
+            predictions[i] = 1  # WARM
+        else:
+            predictions[i] = 0  # COLD
+    
+    return predictions
+
 def calculate_latency(predictions, access_counts, volumes, cost_weight=0.5):
     """
     Calcula a latência total para um conjunto de objetos com base nas predições,
@@ -106,7 +160,7 @@ def filter_by_volume(df, df_volume, start_week):
     valid_objects = df_volume[df_volume[last_week_column] > 0].index
     return df.loc[df.index.intersection(valid_objects)]
 
-def get_label(data, volumes):
+def get_label(data, volumes, cost_weight=0.5):
     """
     Gera rótulos multiclasse baseado no cálculo do custo balanceado para cada classe.
     
@@ -122,7 +176,7 @@ def get_label(data, volumes):
     labels = []
     
     # Cria perfil do usuário para obter os parâmetros de custo
-    user_profile = UserProfile()
+    user_profile = UserProfile(cost_weight=cost_weight)
     
     # Garante que os índices estejam alinhados
     if isinstance(volumes, pd.Series):
@@ -140,6 +194,7 @@ def get_label(data, volumes):
         billable_volume = max(volume, MIN_BILLABLE_SIZE)
         # Converte volume de bytes para gigabytes
         billable_volume = billable_volume / (1024 ** 3)  # bytes para GB
+        billable_volume = 1
         # Calcula custo e latência para cada classe
         costs = []
         
@@ -176,60 +231,49 @@ def get_label(data, volumes):
 
 def calculate_cost(predictions, actuals, volumes, access_counts, cost_weight=0.5):
     """
-    Calcula o custo total considerando penalizações para classificações incorretas e balanceamento
-    entre custo e latência.
-    
-    Args:
-        predictions (array): Predições para cada objeto (COLD/WARM/HOT)
-        actuals (array): Classes reais dos objetos
-        volumes (array): Volumes dos objetos
-        access_counts (array): Número de acessos por objeto
-        cost_weight (float): Peso do custo no balanceamento (0-1)
-    
-    Returns:
-        float: Custo total balanceado
+    Calcula o custo total de forma robusta e consistente.
+    1. O custo base é o da camada predita.
+    2. Uma penalidade de migração é adicionada se a predição for incorreta.
     """
-    MIN_BILLABLE_SIZE = 0.128  # 128KB em GB
+    MIN_BILLABLE_SIZE = 0.128
     total_cost = 0
-    
-    # Cria perfil do usuário para obter os parâmetros de custo
     user_profile = UserProfile(cost_weight=cost_weight)
-    
-    for pred, actual, volume, accesses in zip(predictions, actuals, volumes, access_counts):
-        # Ajusta volume para o mínimo faturável
-        access_1k = float(accesses) / 1000.0  # acessos por mil
-        billable_volume = max(volume, MIN_BILLABLE_SIZE)
-        billable_volume = billable_volume / (1024 ** 3)  # bytes para GB
+    MIGRATION_COST_PER_GB = 0.01 
 
-        billable_volume = 1
+    for pred, actual, volume, accesses in zip(predictions, actuals, volumes, access_counts):
+        access_1k = float(accesses) / 1000.0
+        # ATENÇÃO: Linha 'billable_volume = 1' deve ser removida para resultados finais.
+        billable_volume = max(volume, MIN_BILLABLE_SIZE) / (1024 ** 3)
         
-        # Calcula custo de armazenamento
+        # --- 1. Calcular o custo da DECISÃO (baseado na predição) ---
+        storage_cost, operation_cost, retrieval_cost = 0, 0, 0
+
         if pred == HOT:
-            storage_cost = billable_volume * user_profile.hot_storage_cost  
-            operation_cost = access_1k * billable_volume * user_profile.hot_operation_cost
+            storage_cost = billable_volume * user_profile.hot_storage_cost
+            operation_cost = access_1k * user_profile.hot_operation_cost
             retrieval_cost = access_1k * billable_volume * user_profile.hot_retrieval_cost
-            if pred != actual:
-                operation_cost += 1000 * billable_volume * user_profile.hot_operation_cost
         elif pred == WARM:
             storage_cost = billable_volume * user_profile.warm_storage_cost
-            operation_cost = access_1k * billable_volume * user_profile.warm_operation_cost
+            operation_cost = access_1k * user_profile.warm_operation_cost
             retrieval_cost = access_1k * billable_volume * user_profile.warm_retrieval_cost
-            if pred != actual:
-                operation_cost += 1000 * billable_volume * user_profile.warm_operation_cost
         else:  # COLD
             storage_cost = billable_volume * user_profile.cold_storage_cost
-            operation_cost = access_1k * billable_volume * user_profile.cold_operation_cost
+            operation_cost = access_1k * user_profile.cold_operation_cost
             retrieval_cost = access_1k * billable_volume * user_profile.cold_retrieval_cost
-            if pred != actual:
-                operation_cost += 1000 * billable_volume * user_profile.cold_operation_cost
 
-        # Calcula custo total
+        if pred != actual:
+            storage_cost += billable_volume * user_profile.hot_storage_cost
+            operation_cost += access_1k * billable_volume * user_profile.hot_operation_cost
+
+        # Custo total da escolha, somado em UMA variável.
         monetary_cost = storage_cost + operation_cost + retrieval_cost
+            
+        # Acumula o custo total, garantindo que cada objeto seja contado apenas UMA vez.
         total_cost += monetary_cost
     
     return total_cost
 
-def get_oracle_predictions(access_counts, volumes):
+def get_oracle_predictions(access_counts, volumes, cost_weight=0.5):
     """
     Determina a melhor classificação possível (Oracle) com base no conhecimento perfeito dos acessos futuros
     e considerando o balanceamento entre custo e latência.
@@ -246,7 +290,7 @@ def get_oracle_predictions(access_counts, volumes):
     predictions = np.zeros_like(access_counts, dtype=int)
     
     # Cria perfil do usuário para obter os parâmetros de custo
-    user_profile = UserProfile()
+    user_profile = UserProfile(cost_weight=cost_weight)
     
     for i, (accesses, volume) in enumerate(zip(access_counts, volumes)):
         # Ajusta volume para o mínimo faturável
@@ -257,12 +301,12 @@ def get_oracle_predictions(access_counts, volumes):
         # Calcula custo e latência para cada classe
         costs = []
         
-        # HOT
-        hot_storage = billable_volume * user_profile.hot_storage_cost
-        hot_operation = accesses * billable_volume * user_profile.hot_operation_cost
-        hot_retrieval = accesses * billable_volume * user_profile.hot_retrieval_cost
-        hot_cost = hot_storage + hot_operation + hot_retrieval
-        costs.append(hot_cost)
+        # COLD
+        cold_storage = billable_volume * user_profile.cold_storage_cost
+        cold_operation = accesses * billable_volume * user_profile.cold_operation_cost
+        cold_retrieval = accesses * billable_volume * user_profile.cold_retrieval_cost
+        cold_cost = cold_storage + cold_operation + cold_retrieval
+        costs.append(cold_cost)
         
         # WARM
         warm_storage = billable_volume * user_profile.warm_storage_cost
@@ -271,17 +315,32 @@ def get_oracle_predictions(access_counts, volumes):
         warm_cost = warm_storage + warm_operation + warm_retrieval
         costs.append(warm_cost)
         
-        # COLD
-        cold_storage = billable_volume * user_profile.cold_storage_cost
-        cold_operation = accesses * billable_volume * user_profile.cold_operation_cost
-        cold_retrieval = accesses * billable_volume * user_profile.cold_retrieval_cost
-        cold_cost = cold_storage + cold_operation + cold_retrieval
-        costs.append(cold_cost)
+        # HOT
+        hot_storage = billable_volume * user_profile.hot_storage_cost
+        hot_operation = accesses * billable_volume * user_profile.hot_operation_cost
+        hot_retrieval = accesses * billable_volume * user_profile.hot_retrieval_cost
+        hot_cost = hot_storage + hot_operation + hot_retrieval
+        costs.append(hot_cost)
         
         # Escolhe a classe com menor custo balanceado
         predictions[i] = np.argmin(costs)
     
     return predictions
+
+def calculate_age(df_access, window_start):
+    """
+    Calcula a idade de cada objeto em semanas, relativa ao window_start.
+    Idade = window_start - first_week_with_access (se >0, else 0)
+    """
+    ages = {}
+    for idx, row in df_access.iterrows():
+        first_access = next((i for i, val in enumerate(row) if val > 0), None)
+        if first_access is not None:
+            age = max(0, window_start - first_access)
+        else:
+            age = 0  # Nunca acessado
+        ages[idx] = age
+    return pd.Series(ages)
 
 def run_analysis(window, user_profile, df_access, df_volume, models_to_run, classifiers, output_dir, window_size):
     """
@@ -307,17 +366,30 @@ def run_analysis(window, user_profile, df_access, df_volume, models_to_run, clas
     label_train_data = extract_data(df_access, *window['label_train'])
     label_test_data = extract_data(df_access, *window['label_test'])
 
+    # Primeiro filtra por volume
     train_data = filter_by_volume(train_data, df_volume, first_week)
     test_data = filter_by_volume(test_data, df_volume, first_week)
     label_train_data = filter_by_volume(label_train_data, df_volume, first_week)
     label_test_data = filter_by_volume(label_test_data, df_volume, first_week)
+
+    # Depois calcula as idades apenas para os objetos já filtrados
+    train_ages = calculate_age(df_access, window['train'][0])
+    test_ages = calculate_age(df_access, window['test'][0])
+
+    # Filtra as idades para corresponder aos índices dos dados já filtrados
+    train_ages = train_ages[train_ages.index.isin(train_data.index)]
+    test_ages = test_ages[test_ages.index.isin(test_data.index)]
+
+    # Adiciona coluna age aos dados
+    train_data['age'] = train_ages
+    test_data['age'] = test_ages
     
     # Carrega dados de volume
     volumes = df_volume.loc[:, df_volume.columns[-1]]
     
     # Gera rótulos multiclasse
-    y_train = get_label(label_train_data, volumes)
-    y_test = get_label(label_test_data, volumes)
+    y_train = get_label(label_train_data, volumes, user_profile.cost_weight)
+    y_test = get_label(label_test_data, volumes, user_profile.cost_weight)
 
     # imprimindo quantos objetos temos em cada classe para depuração
     print(f"\nDistribuição das classes (treino):")
@@ -377,7 +449,7 @@ def run_analysis(window, user_profile, df_access, df_volume, models_to_run, clas
     access_counts = label_test_data.sum(axis=1)
     volumes = test_data.index.map(lambda x: df_volume.loc[x, df_volume.columns[-1]])
     
-    oracle_predictions = get_oracle_predictions(access_counts, volumes)
+    oracle_predictions = get_oracle_predictions(access_counts, volumes, user_profile.cost_weight)
     always_hot_predictions = np.ones_like(y_test) * HOT
     always_warm_predictions = np.ones_like(y_test) * WARM
     always_cold_predictions = np.ones_like(y_test) * COLD
@@ -401,7 +473,7 @@ def run_analysis(window, user_profile, df_access, df_volume, models_to_run, clas
             print("Aplicando estratégia Always Cold...")
         elif model_name == 'ONL':
             print("Aplicando estratégia Online...")
-            y_pred = get_online_predictions(test_data, volumes)
+            y_pred = get_online_predictions(test_data, volumes, user_profile.cost_weight)
         else:
             try:
                 model = set_classifier(model_name, classifiers)
@@ -415,7 +487,8 @@ def run_analysis(window, user_profile, df_access, df_volume, models_to_run, clas
                     y_prob = model.predict_proba(X_test_scaled)
                     y_pred = np.zeros_like(y_test)
                     
-                    y_pred = np.argmax(y_prob, axis=1)
+                    # Aplica thresholds baseados no cost_weight
+                    y_pred = apply_cost_weight_thresholds(y_prob, user_profile.cost_weight, user_profile)
                         
             except Exception as e:
                 print(f"ERRO ao treinar/predizer com {model_name}: {str(e)}")
@@ -463,7 +536,16 @@ def save_final_results(final_results, output_dir):
     """
     results_for_csv = []
     for profile_key, results in final_results.items():
-        model_name, cost_weight = profile_key.split('_')
+        # Extrai model_name e cost_weight da chave (formato: "model_name_cost_weight")
+        parts = profile_key.split('_')
+        if len(parts) >= 2:
+            # Pega o último elemento como cost_weight e o resto como model_name
+            cost_weight = float(parts[-1])
+            model_name = '_'.join(parts[:-1])
+        else:
+            # Fallback para formato antigo
+            model_name, cost_weight = profile_key.split('_')
+            cost_weight = float(cost_weight)
         cm = results['confusion_matrix']
         
         # Extrair métricas da matriz de confusão para cada classe
@@ -534,7 +616,7 @@ def accumulate_results(final_results, window_results, cost_weight):
         cost_weight (float): Peso do custo usado na análise.
     """
     for model_name, result in window_results.items():
-        profile_key = f"{model_name}_{int(cost_weight)}"
+        profile_key = f"{model_name}_{cost_weight:.1f}"
         
         if profile_key not in final_results:
             # Inicializar acumuladores para o modelo
@@ -675,10 +757,13 @@ def setup_experiment_parameters(params):
     window_size = params['window_size']
     step_size = params['step_size']
     models_to_run = params['models_to_run']
-    cost_weight = params.get('cost_weight', 0.5)
-    user_profile = UserProfile(cost_weight)
+    cost_weights = params.get('cost_weight', 0.5)
     
-    return window_size, step_size, models_to_run, user_profile
+    # Garante que cost_weights seja uma lista
+    if not isinstance(cost_weights, list):
+        cost_weights = [cost_weights]
+    
+    return window_size, step_size, models_to_run, cost_weights
 
 def generate_time_windows(df_access, window_size, step_size):
     """Gera as janelas temporais para o experimento."""
@@ -701,7 +786,7 @@ def process_all_windows(df_access, df_volume, params, classifiers, output_dir):
     print("\nIniciando processamento das janelas...")
     
     # Configura parâmetros do experimento
-    window_size, step_size, models_to_run, user_profile = setup_experiment_parameters(params)
+    window_size, step_size, models_to_run, cost_weights = setup_experiment_parameters(params)
     
     # Gera janelas temporais
     windows = generate_time_windows(df_access, window_size, step_size)
@@ -709,20 +794,25 @@ def process_all_windows(df_access, df_volume, params, classifiers, output_dir):
     # Inicializa containers de resultados
     final_results = initialize_result_containers()
     
-    # Processa cada janela
-    for i, window in enumerate(windows):
-        results = process_window(
-            window, i, len(windows), user_profile, df_access, df_volume,
-            models_to_run, classifiers, output_dir, window_size
-        )
+    # Processa cada valor de cost_weight
+    for cost_weight in cost_weights:
+        print(f"\n=== Processando com cost_weight = {cost_weight} ===")
+        user_profile = UserProfile(cost_weight)
         
-        # Acumula resultados
-        accumulate_window_results(
-            final_results,
-            results, user_profile.cost_weight
-        )
+        # Processa cada janela para este cost_weight
+        for i, window in enumerate(windows):
+            results = process_window(
+                window, i, len(windows), user_profile, df_access, df_volume,
+                models_to_run, classifiers, output_dir, window_size
+            )
+            
+            # Acumula resultados
+            accumulate_window_results(
+                final_results,
+                results, cost_weight
+            )
     
-    return final_results, len(windows)
+    return final_results, len(windows) * len(cost_weights)
 
 def save_results(final_results, output_dir, total_windows):
     """Salva os resultados finais."""

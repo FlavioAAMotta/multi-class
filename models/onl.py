@@ -1,7 +1,7 @@
 import numpy as np
 from .user_profiles import UserProfile
 
-def get_online_predictions(test_data, volumes):
+def get_online_predictions(test_data, volumes, cost_weight=0.5):
     """
     Classifica dados de teste baseado no conhecimento dos custos e número de acessos.
     
@@ -14,7 +14,7 @@ def get_online_predictions(test_data, volumes):
         predictions: Array com classificações (0=COLD, 1=WARM, 2=HOT)
     """
     # Cria perfil do usuário com os pesos especificados
-    user_profile = UserProfile()
+    user_profile = UserProfile(cost_weight=cost_weight)
     
     # Extrai número de acessos dos dados de teste
     # Calcula o total de acessos por objeto (soma das colunas)
