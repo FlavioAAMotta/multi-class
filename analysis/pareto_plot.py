@@ -18,13 +18,22 @@ def plot_metric_trends(pop_name):
     # Ler os resultados
     df = pd.read_csv(os.path.join(input_dir, 'all_weights_results.csv'))
     
-    # Definir métricas para plotar
-    metrics = {
+    # Definir métricas para plotar - versão em inglês
+    metrics_en = {
         'model_cost': 'Total Cost',
         'model_latency': 'Total Latency (s)',
         'accuracy': 'Accuracy',
         'precision': 'Precision',
         'recall': 'Recall',
+        'f1_score': 'F1-Score'
+    }
+    # Versão em português brasileiro
+    metrics_ptbr = {
+        'model_cost': 'Custo Total',
+        'model_latency': 'Latência Total (s)',
+        'accuracy': 'Acurácia',
+        'precision': 'Precisão',
+        'recall': 'Revocação',
         'f1_score': 'F1-Score'
     }
     
@@ -44,8 +53,8 @@ def plot_metric_trends(pop_name):
         'HV': {'marker': '+', 'color': '#FF4500'}       # Laranja avermelhado
     }
     
-    # Plotar cada métrica
-    for metric, metric_label in metrics.items():
+    # Plotar cada métrica - versão em inglês
+    for metric, metric_label in metrics_en.items():
         plt.figure(figsize=(12, 6))
         
         for model in df['model_name'].unique():
@@ -85,6 +94,52 @@ def plot_metric_trends(pop_name):
                     bbox_inches='tight',
                     dpi=300)
         plt.savefig(os.path.join(output_dir, f'{pop_name}_{metric}_trend.png'),
+                    format='png',
+                    bbox_inches='tight',
+                    dpi=300)
+        plt.close()
+    
+    # Plotar cada métrica - versão em português brasileiro
+    for metric, metric_label in metrics_ptbr.items():
+        plt.figure(figsize=(12, 6))
+        
+        for model in df['model_name'].unique():
+            # Não plotar os modelos AWL, ONL e AHL
+            if model.startswith('AWL') or model.startswith('ONL') or model.startswith('AHL'):
+                continue
+            
+            model_base = model.split('_')[0]
+            model_data = df[df['model_name'] == model]
+            
+            if model_base in model_styles:
+                style = model_styles[model_base]
+                plt.plot(model_data['cost_weight'],
+                        model_data[metric],
+                        marker=style['marker'],
+                        color=style['color'],
+                        label=model,
+                        markersize=8,
+                        linewidth=2,
+                        alpha=0.8)
+        
+        plt.xlabel('Peso do Custo', fontsize=12)
+        plt.ylabel(metric_label, fontsize=12)
+        plt.title(f'{metric_label} vs Peso do Custo', fontsize=14, fontweight='bold')
+        plt.grid(True, linestyle='--', alpha=0.3)
+        plt.legend(bbox_to_anchor=(1.05, 1),
+                  loc='upper left',
+                  borderaxespad=0.,
+                  fontsize=10,
+                  frameon=True,
+                  shadow=True)
+        
+        # Ajustar layout e salvar
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'{pop_name}_{metric}_trend_ptbr.svg'),
+                    format='svg',
+                    bbox_inches='tight',
+                    dpi=300)
+        plt.savefig(os.path.join(output_dir, f'{pop_name}_{metric}_trend_ptbr.png'),
                     format='png',
                     bbox_inches='tight',
                     dpi=300)

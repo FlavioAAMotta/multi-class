@@ -80,7 +80,8 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
     )
     
     # Atualizar o dicionário de métricas para incluir recall e rcs
-    metrics = {
+    # Versão em inglês
+    metrics_en = {
         'model_cost': 'Total Cost',
         'model_latency': 'Total Latency (s)',
         'accuracy': 'Accuracy',
@@ -88,6 +89,16 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
         'recall': 'Recall',
         'rcs': 'Relative Cost Savings (%)'
     }
+    # Versão em português brasileiro
+    metrics_ptbr = {
+        'model_cost': 'Custo Total',
+        'model_latency': 'Latência Total (s)',
+        'accuracy': 'Acurácia',
+        'f1_score': 'F1-Score',
+        'recall': 'Revocação',
+        'rcs': 'Economia Relativa de Custo (%)'
+    }
+    metrics = metrics_en  # Usar inglês por padrão, mas também gerar pt-BR
     
     # Sort by cost_weight for proper plotting
     df = df.sort_values('cost_weight')
@@ -122,8 +133,8 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
     print("Algoritmos encontrados:", algorithms)
     print("Marcadores atribuídos:", markers)
     
-    # Plot trends
-    for metric, metric_label in metrics.items():
+    # Plot trends - versão em inglês
+    for metric, metric_label in metrics_en.items():
         plt.figure(figsize=(12, 6))
         for model in df['model_name'].unique():
             model_base = model.split('_')[0]  # Pegar nome base do modelo
@@ -136,9 +147,9 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
                     markersize=8,
                     alpha=0.7)
         
-        plt.xlabel('Cost Weight', fontsize=12)
-        plt.ylabel(metric_label, fontsize=12)
-        plt.title(f'{metric_label} vs Cost Weight', fontsize=14)
+        plt.xlabel('Cost Weight', fontsize=20)
+        plt.ylabel(metric_label, fontsize=20)
+        plt.tick_params(axis='both', which='major', labelsize=18)
         plt.legend(bbox_to_anchor=(1.05, 1), 
                   loc='upper left', 
                   borderaxespad=0.,
@@ -149,15 +160,48 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
         plt.savefig(os.path.join(base_output_dir, f'{metric}_trend.png'), 
                     dpi=300, 
                     bbox_inches='tight')
+        plt.savefig(os.path.join(base_output_dir, f'{metric}_trend.svg'), 
+                    bbox_inches='tight')
         plt.close()
     
-    # Create heatmap of relative changes
+    # Plot trends - versão em português brasileiro
+    for metric, metric_label in metrics_ptbr.items():
+        plt.figure(figsize=(12, 6))
+        for model in df['model_name'].unique():
+            model_base = model.split('_')[0]  # Pegar nome base do modelo
+            model_data = df[df['model_name'] == model]
+            plt.plot(model_data['cost_weight'].to_numpy(), 
+                    model_data[metric].to_numpy(),
+                    marker=markers[model_base],
+                    color=colors[model_base],
+                    label=model,
+                    markersize=8,
+                    alpha=0.7)
+        
+        plt.xlabel('Peso do Custo', fontsize=20)
+        plt.ylabel(metric_label, fontsize=20)
+        plt.tick_params(axis='both', which='major', labelsize=18)
+        plt.legend(bbox_to_anchor=(1.05, 1), 
+                  loc='upper left', 
+                  borderaxespad=0.,
+                  fontsize=20,
+                  frameon=True)
+        plt.grid(True, linestyle='--', alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(base_output_dir, f'{metric}_trend_ptbr.png'), 
+                    dpi=300, 
+                    bbox_inches='tight')
+        plt.savefig(os.path.join(base_output_dir, f'{metric}_trend_ptbr.svg'), 
+                    bbox_inches='tight')
+        plt.close()
+    
+    # Create heatmap of relative changes - versão em inglês
     plt.figure(figsize=(20, 15))
-    num_metrics = len(metrics.keys())
+    num_metrics = len(metrics_en.keys())
     num_cols = 3
     num_rows = (num_metrics + num_cols - 1) // num_cols  # Ceiling division
     
-    for idx, metric in enumerate(metrics.keys(), 1):
+    for idx, metric in enumerate(metrics_en.keys(), 1):
         plt.subplot(num_rows, num_cols, idx)
         pivot_data = df.pivot(index='model_name', 
                             columns='cost_weight', 
@@ -180,16 +224,55 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
                    center=0,
                    annot=True,
                    fmt='.1f')
-        plt.title(f'Relative Change in {metrics[metric]} (%)')
+        plt.title(metrics_en[metric], fontsize=16)
+        plt.tick_params(axis='both', which='major', labelsize=18)
     
     plt.tight_layout()
     # Create like this: Pop1/4x4/relative_changes_heatmap.png
     plt.savefig(os.path.join(base_output_dir, 'relative_changes_heatmap.png'))
+    plt.savefig(os.path.join(base_output_dir, 'relative_changes_heatmap.svg'))
+    plt.close()
+    
+    # Create heatmap of relative changes - versão em português brasileiro
+    plt.figure(figsize=(20, 15))
+    num_metrics = len(metrics_ptbr.keys())
+    num_cols = 3
+    num_rows = (num_metrics + num_cols - 1) // num_cols  # Ceiling division
+    
+    for idx, metric in enumerate(metrics_ptbr.keys(), 1):
+        plt.subplot(num_rows, num_cols, idx)
+        pivot_data = df.pivot(index='model_name', 
+                            columns='cost_weight', 
+                            values=metric)
+        # Normalize relative to weight=0.5 (middle value)
+        baseline_weight = 0.5
+        if baseline_weight in pivot_data.columns:
+            baseline = pivot_data[baseline_weight]
+            relative_change = 100 * (pivot_data.subtract(baseline, axis=0)
+                                    .divide(baseline, axis=0))
+        else:
+            # If 0.5 is not available, use the middle column
+            middle_col = pivot_data.columns[len(pivot_data.columns)//2]
+            baseline = pivot_data[middle_col]
+            relative_change = 100 * (pivot_data.subtract(baseline, axis=0)
+                                    .divide(baseline, axis=0))
+        
+        sns.heatmap(relative_change, 
+                   cmap='RdYlBu_r',
+                   center=0,
+                   annot=True,
+                   fmt='.1f')
+        plt.title(metrics_ptbr[metric], fontsize=16)
+        plt.tick_params(axis='both', which='major', labelsize=18)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(base_output_dir, 'relative_changes_heatmap_ptbr.png'))
+    plt.savefig(os.path.join(base_output_dir, 'relative_changes_heatmap_ptbr.svg'))
     plt.close()
     
     # Generate summary statistics
     summary = df.groupby(['model_name', 'cost_weight']).agg({
-        metric: ['mean', 'std'] for metric in metrics
+        metric: ['mean', 'std'] for metric in metrics_en
     }).round(4)
     
     summary.to_csv(os.path.join(base_output_dir, 'sensitivity_summary.csv'))
@@ -230,17 +313,52 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
                                    edgecolor='none', 
                                    alpha=0.7))
         
-        plt.xlabel('Custo Total')
-        plt.ylabel('Latência Total (s)')
-        plt.title(f'Trade-off: Custo vs Latência - Modelo {model}')
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.xlabel('Total Cost', fontsize=20)
+        plt.ylabel('Total Latency (s)', fontsize=20)
+        plt.tick_params(axis='both', which='major', labelsize=18)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=20)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
         plt.savefig(os.path.join(model_dir, 'cost_latency_tradeoff.png'))
+        plt.savefig(os.path.join(model_dir, 'cost_latency_tradeoff.svg'))
+        plt.close()
+        
+        # Versão em português brasileiro
+        plt.figure(figsize=(12, 8))
+        for weight, color in zip(weights, colors_weight):
+            weight_data = model_data[model_data['cost_weight'] == weight]
+            plt.scatter(weight_data['model_cost'].to_numpy(),
+                       weight_data['model_latency'].to_numpy(),
+                       label=f'w={weight}',
+                       color=color,
+                       marker=markers[model.split('_')[0]],
+                       alpha=0.7,
+                       s=100)
+            
+            # Anotações mais claras
+            for x, y in zip(weight_data['model_cost'],
+                          weight_data['model_latency']):
+                plt.annotate(f'w={weight}',
+                           (x, y),
+                           xytext=(5, 5),
+                           textcoords='offset points',
+                           fontsize=20,
+                           bbox=dict(facecolor='white', 
+                                   edgecolor='none', 
+                                   alpha=0.7))
+        
+        plt.xlabel('Custo Total', fontsize=20)
+        plt.ylabel('Latência Total (s)', fontsize=20)
+        plt.tick_params(axis='both', which='major', labelsize=18)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=20)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(os.path.join(model_dir, 'cost_latency_tradeoff_ptbr.png'))
+        plt.savefig(os.path.join(model_dir, 'cost_latency_tradeoff_ptbr.svg'))
         plt.close()
     
     # Criar plot da fronteira de Pareto global
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(14, 8))
     
     # Coletar todos os pontos de todos os modelos
     all_costs = df['model_cost'].to_numpy()
@@ -302,13 +420,48 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
                                 edgecolor='none', 
                                 alpha=0.7))
     
-    plt.xlabel('Custo Total')
-    plt.ylabel('Latência Total (s)')
-    plt.title('Fronteira de Pareto Global: Custo vs Latência')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xlabel('Total Cost', fontsize=20)
+    plt.ylabel('Total Latency (s)', fontsize=20)
+    plt.tick_params(axis='both', which='major', labelsize=18)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=20)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig(os.path.join(base_output_dir, 'pareto_frontier_global.png'))
+    plt.savefig(os.path.join(base_output_dir, 'pareto_frontier_global.svg'))
+    plt.close()
+    
+    # Versão em português brasileiro da fronteira de Pareto
+    plt.figure(figsize=(14, 8))
+    for model, color in zip(models, model_colors):
+        model_data = pareto_df[pareto_df['model_name'] == model]
+        plt.scatter(model_data['model_cost'],
+                   model_data['model_latency'],
+                   label=model,
+                   color=color,
+                   marker=markers[model.split('_')[0]],
+                   alpha=0.7,
+                   s=100)
+        
+        # Melhorar anotações
+        for _, row in model_data.iterrows():
+            plt.annotate(f'w={row["cost_weight"]}',
+                        (row['model_cost'], 
+                         row['model_latency']),
+                        xytext=(5, 5),
+                        textcoords='offset points',
+                        fontsize=20,
+                        bbox=dict(facecolor='white', 
+                                edgecolor='none', 
+                                alpha=0.7))
+    
+    plt.xlabel('Custo Total', fontsize=20)
+    plt.ylabel('Latência Total (s)', fontsize=20)
+    plt.tick_params(axis='both', which='major', labelsize=18)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=20)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(os.path.join(base_output_dir, 'pareto_frontier_global_ptbr.png'))
+    plt.savefig(os.path.join(base_output_dir, 'pareto_frontier_global_ptbr.svg'))
     plt.close()
     
     # Salvar dados dos pontos não dominados
@@ -333,12 +486,40 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
     
     plt.xlabel('Cost Weight', fontsize=20)
     plt.ylabel('Relative Cost Savings (%)', fontsize=20)
-    plt.title('RCS vs Cost Weight', fontsize=20)
+    plt.tick_params(axis='both', which='major', labelsize=18)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True, linestyle='--', alpha=0.3)
     plt.tight_layout()
     plt.savefig(os.path.join(base_output_dir, 'rcs_trend.png'), 
                 dpi=300, 
+                bbox_inches='tight')
+    plt.savefig(os.path.join(base_output_dir, 'rcs_trend.svg'), 
+                bbox_inches='tight')
+    plt.close()
+    
+    # Versão em português brasileiro do RCS
+    plt.figure(figsize=(12, 6))
+    for model in df['model_name'].unique():
+        model_base = model.split('_')[0]
+        model_data = df[df['model_name'] == model]
+        plt.plot(model_data['cost_weight'].to_numpy(), 
+                model_data['rcs'].to_numpy(),
+                marker=markers[model_base],
+                color=colors[model_base],
+                label=model,
+                markersize=8,
+                alpha=0.7)
+    
+    plt.xlabel('Peso do Custo', fontsize=20)
+    plt.ylabel('Economia Relativa de Custo (%)', fontsize=20)
+    plt.tick_params(axis='both', which='major', labelsize=18)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(base_output_dir, 'rcs_trend_ptbr.png'), 
+                dpi=300, 
+                bbox_inches='tight')
+    plt.savefig(os.path.join(base_output_dir, 'rcs_trend_ptbr.svg'), 
                 bbox_inches='tight')
     plt.close()
     
@@ -346,8 +527,17 @@ def analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_siz
 
 if __name__ == "__main__":
     sensitivity_dir = "../results/sensitivity_analysis"
-    pop_name = "Pop1"
     window_size = 4
-    step_size = 4   
-    summary = analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_size)
-    print("Analysis complete. Check the analysis_results/sensitivity directory for outputs.") 
+    step_size = 4
+    
+    # Gerar para ambas as populações
+    for pop_name in ["Pop1", "Pop2"]:
+        print(f"\n{'='*60}")
+        print(f"Processando {pop_name}...")
+        print(f"{'='*60}")
+        summary = analyze_sensitivity_results(sensitivity_dir, pop_name, window_size, step_size)
+        print(f"Análise completa para {pop_name}. Verifique o diretório analysis_results/sensitivity/{pop_name}/{window_size}x{step_size}/")
+    
+    print("\n" + "="*60)
+    print("Análise completa para todas as populações!")
+    print("Verifique o diretório analysis_results/sensitivity para os resultados.") 
